@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <meta name="theme-color" content="#000000" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>のぞき窓</title>
+  <meta name="description" content="カメラで目の位置を追いかけて、画面の奥に3Dモデルがあるように見せる窓。" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🪟</text></svg>" />
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <canvas id="view"></canvas>
+  <video id="cam" autoplay muted playsinline></video>
+
+  <div id="debug" class="debug" hidden>
+    <canvas id="preview" width="160" height="120"></canvas>
+    <pre id="readout"></pre>
+  </div>
+
+  <button id="pick-first" class="btn first" hidden>モデルを選ぶ（ドラッグ＆ドロップでもOK）</button>
+  <p id="notice" class="notice" hidden></p>
+  <div id="drop" class="drop" hidden>ここに .glb / .gltf / .vrm を落とす</div>
+
+  <div id="panel" class="panel" hidden>
+    <div class="panel-inner">
+      <div class="row seg" role="radiogroup" aria-label="見せ方">
+        <button data-mode="box" class="btn small">箱庭</button>
+        <button data-mode="float" class="btn small">溶け込む</button>
+      </div>
+      <label class="field">
+        <span>機種</span>
+        <select id="device"></select>
+      </label>
+      <label class="field" id="custom-row">
+        <span>画面の横幅</span>
+        <input id="custom-width" type="number" min="5" max="200" step="0.1" /> <span>cm</span>
+      </label>
+      <label class="field">
+        <span>大きさ</span>
+        <input id="size" type="range" min="0.3" max="1.5" step="0.05" />
+      </label>
+      <label class="field">
+        <span>向き</span>
+        <input id="turn" type="range" min="-180" max="180" step="5" />
+      </label>
+      <label class="field check">
+        <input id="debug-toggle" type="checkbox" />
+        <span>目の追跡を表示</span>
+      </label>
+      <p id="model-name" class="model-name"></p>
+      <div class="row">
+        <button id="pick" class="btn small">モデルを選ぶ</button>
+        <button id="sample" class="btn small">サンプルに戻す</button>
+        <button id="close" class="btn small">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <input id="file" type="file" accept=".glb,.gltf,.vrm,model/gltf-binary,model/gltf+json" hidden />
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
