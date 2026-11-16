@@ -21,21 +21,22 @@ async function run(mode, fn) {
   });
 }
 
-export async function saveModel(file) {
+// key: 'last' = モデル、'motion' = .vrma
+export async function saveFile(file, key = 'last') {
   try {
-    await run('readwrite', (s) => s.put({ name: file.name, blob: file }, 'last'));
+    await run('readwrite', (s) => s.put({ name: file.name, blob: file }, key));
   } catch {}
 }
-export async function loadModel() {
+export async function loadFile(key = 'last') {
   try {
-    return (await run('readonly', (s) => s.get('last'))) || null;
+    return (await run('readonly', (s) => s.get(key))) || null;
   } catch {
     return null;
   }
 }
-export async function clearModel() {
+export async function clearFile(key = 'last') {
   try {
-    await run('readwrite', (s) => s.delete('last'));
+    await run('readwrite', (s) => s.delete(key));
   } catch {}
 }
 

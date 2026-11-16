@@ -2,9 +2,9 @@ import * as THREE from 'three';
 import { windowFrustum, eyeFromCamera, cameraToScreen, cameraPosition, viewportOffset } from './lib/geometry.js';
 import { OneEuro3 } from './lib/filter.js';
 import { DEVICES, CUSTOM_ID, guessDevice, customDevice, physicalScreen } from './lib/devices.js';
-import { createWorld, sampleModel, loadModelFile } from './scene.js';
+import { createWorld, sampleModel, loadModelFile, loadMotionFile } from './scene.js';
 import { createTracker } from './tracker.js';
-import { saveModel, loadModel, clearModel, loadSettings, saveSettings } from './store.js';
+import { saveFile, loadFile, clearFile, loadSettings, saveSettings } from './store.js';
 
 const $ = (id) => document.getElementById(id);
 const isTouch = matchMedia('(pointer: coarse)').matches;
@@ -18,6 +18,8 @@ const settings = loadSettings({
   turn: 0,
   debug: false,
   hasModel: false,
+  dance: true,
+  bpm: 120,
 });
 
 // ---- 描画 ----
@@ -126,23 +128,35 @@ function hideNotice() {
   $('notice').hidden = true;
 }
 
-// ---- モデル ----
-async function useFile(file) {
+// ---- モデル / モーション ----
+let motionAnim = null; // 読み込み済みの .vrma(新しい VRM にも付け直す)
+
+function describeModel() {
+  const m = world.model;
+  if (!m) return;
+  const motion = m.isVrm ? `（${m.motionName ? `モーション: ${m.motionName}` : settings.dance ? '組み込みダンス' : '待機'}）` : '';
+  $('model-name').textContent = `表示中: ${m.name}${motion}`;
+  $('unmotion').hidden = !m.motionName;
+}
+
+async function useFile(file, { restoring = false } = {}) {
   if (!file) return;
+  if (/\.vrma$/i.test(file.name)) return useMotion(file, { restoring });
   if (!/\.(glb|gltf|vrm)$/i.test(file.name)) {
-    showNotice('.glb / .gltf / .vrm のファイルを選んでください', 4000);
+    showNotice('.glb / .gltf / .vrm / .vrma のファイルを選んでください', 4000);
     return;
   }
   showNotice(`${file.name} を読み込んでいます…`);
   try {
     const m = await loadModelFile(file);
     world.setModel(m);
+    if (m.isVrm && motionAnim) m.setMotion(motionAnim.anim, motionAnim.name);
     hideNotice();
     settings.hasModel = true;
     saveSettings(settings);
     $('pick-first').hidden = true;
-    $('model-name').textContent = `表示中: ${m.name}`;
-    saveModel(file);
+    describeModel();
+    if (!restoring) saveFile(file, 'last');
   } catch (e) {
     console.warn('[nozokimado] load', e);
     showNotice(
@@ -154,9 +168,34 @@ async function useFile(file) {
   }
 }
 
+async function useMotion(file, { restoring = false } = {}) {
+  try {
+    const anim = await loadMotionFile(file);
+    motionAnim = { anim, name: file.name };
+    if (!restoring) saveFile(file, 'motion');
+    if (world.model?.isVrm) {
+      world.model.setMotion(anim, file.name);
+      if (!restoring) showNotice(`${file.name} で踊ります`, 3000);
+    } else if (!restoring) {
+      showNotice('モーションを覚えました。VRM のモデルを読み込むと、そのモーションで踊ります', 5000);
+    }
+    describeModel();
+  } catch (e) {
+    console.warn('[nozokimado] motion', e);
+    showNotice('モーションを読み込めませんでした（.vrma に対応しています）', 5000);
+  }
+}
+
+async function dropMotion() {
+  motionAnim = null;
+  await clearFile('motion');
+  world.model?.setMotion?.(null);
+  describeModel();
+}
+
 function useSample() {
   world.setModel(sampleModel());
-  $('model-name').textContent = '表示中: サンプル';
+  describeModel();
 }
 
 // ---- 設定パネル ----
@@ -179,6 +218,9 @@ function syncPanel() {
   $('size').value = settings.size;
   $('turn').value = settings.turn;
   $('debug-toggle').checked = settings.debug;
+  $('dance-toggle').checked = settings.dance;
+  $('bpm').value = settings.bpm;
+  $('bpm-value').textContent = settings.bpm;
 }
 
 function openPanel() {
@@ -228,9 +270,23 @@ $('debug-toggle').onchange = (e) => {
   $('debug').hidden = !settings.debug;
   saveSettings(settings);
 };
+$('dance-toggle').onchange = (e) => {
+  settings.dance = e.target.checked;
+  world.setDance(settings.dance, settings.bpm);
+  saveSettings(settings);
+  describeModel();
+};
+$('bpm').oninput = (e) => {
+  settings.bpm = Number(e.target.value);
+  $('bpm-value').textContent = settings.bpm;
+  world.setDance(settings.dance, settings.bpm);
+  saveSettings(settings);
+};
+$('unmotion').onclick = dropMotion;
 $('pick').onclick = $('pick-first').onclick = () => $('file').click();
 $('sample').onclick = async () => {
-  await clearModel();
+  await clearFile('last');
+  await dropMotion();
   settings.hasModel = false;
   saveSettings(settings);
   useSample();
@@ -378,13 +434,16 @@ function frame(now) {
   world.setMode(settings.mode);
   world.setSize(settings.size);
   world.setTurn(settings.turn);
+  world.setDance(settings.dance, settings.bpm);
   $('debug').hidden = !settings.debug;
   useSample();
   current = { ...view.defaultEye };
   requestAnimationFrame(frame);
 
-  const saved = await loadModel();
-  if (saved?.blob) await useFile(new File([saved.blob], saved.name));
+  const savedMotion = await loadFile('motion');
+  if (savedMotion?.blob) await useMotion(new File([savedMotion.blob], savedMotion.name), { restoring: true });
+  const saved = await loadFile('last');
+  if (saved?.blob) await useFile(new File([saved.blob], saved.name), { restoring: true });
   $('pick-first').hidden = settings.hasModel;
   if (!settings.hasModel) setTimeout(() => ($('pick-first').hidden = true), 12000);
 

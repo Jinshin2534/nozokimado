@@ -2,7 +2,9 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+import { VRMAnimationLoaderPlugin, VRMLookAtQuaternionProxy, createVRMAnimationClip } from '@pixiv/three-vrm-animation';
 import { fitModel } from './lib/fit.js';
+import { dancePose } from './lib/dance.js';
 
 function gridTexture() {
   const c = document.createElement('canvas');
@@ -44,6 +46,7 @@ export function createWorld(renderer) {
   let mode = 'box';
   let model = null; // { object, update(dt, t, eye), box }
   let size = 1;
+  const dance = { on: true, bpm: 120 };
 
   function buildRoom(W, H, D) {
     room.clear();
@@ -154,8 +157,12 @@ export function createWorld(renderer) {
     get model() {
       return model;
     },
+    setDance(on, bpm) {
+      dance.on = on;
+      dance.bpm = bpm;
+    },
     update(dt, t, eyeWorld) {
-      model?.update?.(dt, t, eyeWorld);
+      model?.update?.(dt, t, eyeWorld, dance);
     },
   };
 }
@@ -206,20 +213,25 @@ export async function loadModelFile(file) {
   const object = vrm ? vrm.scene : gltf.scene;
   const lookTarget = new THREE.Object3D();
   let mixer = null;
+  let motion = null; // .vrma の再生用 { mixer, name }
   let blinkAt = 2;
+  let beat = 0;
+  const hips = vrm?.humanoid.getNormalizedBoneNode('hips');
+  const hipsRest = hips?.position.clone();
 
   if (vrm) {
     VRMUtils.removeUnnecessaryVertices(vrm.scene);
     VRMUtils.combineSkeletons?.(vrm.scene);
     VRMUtils.rotateVRM0(vrm); // VRM0.x は -z 向きなので正面(+z)へ
-    const h = vrm.humanoid;
-    // Tポーズのままだと不自然なので腕を下ろす
-    h.getNormalizedBoneNode('leftUpperArm')?.rotation.set(0, 0, -1.2);
-    h.getNormalizedBoneNode('rightUpperArm')?.rotation.set(0, 0, 1.2);
-    h.getNormalizedBoneNode('leftLowerArm')?.rotation.set(0, 0, -0.15);
-    h.getNormalizedBoneNode('rightLowerArm')?.rotation.set(0, 0, 0.15);
+    restPose(vrm);
     vrm.update(0);
-    if (vrm.lookAt) vrm.lookAt.target = lookTarget; // 見ている人と目を合わせる
+    if (vrm.lookAt) {
+      vrm.lookAt.target = lookTarget; // 見ている人と目を合わせる
+      // .vrma の目線トラック用(無いと createVRMAnimationClip が警告を出して自動で作る)
+      const proxy = new VRMLookAtQuaternionProxy(vrm.lookAt);
+      proxy.name = 'VRMLookAtQuaternionProxy';
+      vrm.scene.add(proxy);
+    }
   } else if (gltf.animations?.length) {
     mixer = new THREE.AnimationMixer(object);
     mixer.clipAction(gltf.animations[0]).play();
@@ -233,12 +245,21 @@ export async function loadModelFile(file) {
     box,
     isVrm: !!vrm,
     vrm,
-    update(dt, t, eyeWorld) {
+    update(dt, t, eyeWorld, dance) {
       mixer?.update(dt);
       if (vrm) {
         if (eyeWorld) lookTarget.position.copy(eyeWorld);
-        const chest = vrm.humanoid.getNormalizedBoneNode('chest') || vrm.humanoid.getNormalizedBoneNode('spine');
-        if (chest) chest.rotation.x = Math.sin(t * 1.6) * 0.015; // 呼吸
+        if (motion) {
+          motion.mixer.update(dt);
+        } else if (dance?.on) {
+          beat += (dt * dance.bpm) / 60;
+          applyPose(vrm, dancePose(beat), hips, hipsRest);
+        } else {
+          restPose(vrm);
+          if (hips) hips.position.copy(hipsRest);
+          const chest = vrm.humanoid.getNormalizedBoneNode('chest') || vrm.humanoid.getNormalizedBoneNode('spine');
+          if (chest) chest.rotation.x = Math.sin(t * 1.6) * 0.015; // 呼吸
+        }
         const em = vrm.expressionManager;
         if (em) {
           const since = t - blinkAt;
@@ -247,6 +268,23 @@ export async function loadModelFile(file) {
         }
         vrm.update(dt);
       }
+    },
+    // .vrma(VRMアニメーション)を繰り返し再生する。null で外して組み込みダンスに戻す
+    setMotion(vrmAnimation, name) {
+      if (!vrm) return false;
+      motion?.mixer.stopAllAction();
+      motion = null;
+      restPose(vrm);
+      if (hips) hips.position.copy(hipsRest);
+      if (vrmAnimation) {
+        const m = new THREE.AnimationMixer(vrm.scene);
+        m.clipAction(createVRMAnimationClip(vrmAnimation, vrm)).play();
+        motion = { mixer: m, name };
+      }
+      return true;
+    },
+    get motionName() {
+      return motion?.name || null;
     },
     onPlaced() {
       if (!vrm?.springBoneManager) return;
@@ -257,4 +295,44 @@ export async function loadModelFile(file) {
       if (vrm) VRMUtils.deepDispose(vrm.scene);
     },
   };
+}
+
+// VRM の「何もしていない」姿勢(Tポーズから腕を下ろしただけ)
+const POSE_BONES = [
+  'hips', 'spine', 'chest', 'neck', 'head',
+  'leftUpperArm', 'rightUpperArm', 'leftLowerArm', 'rightLowerArm',
+  'leftUpperLeg', 'rightUpperLeg', 'leftLowerLeg', 'rightLowerLeg', 'leftFoot', 'rightFoot',
+];
+function restPose(vrm) {
+  const h = vrm.humanoid;
+  for (const name of POSE_BONES) h.getNormalizedBoneNode(name)?.rotation.set(0, 0, 0);
+  h.getNormalizedBoneNode('leftUpperArm')?.rotation.set(0, 0, -1.2);
+  h.getNormalizedBoneNode('rightUpperArm')?.rotation.set(0, 0, 1.2);
+  h.getNormalizedBoneNode('leftLowerArm')?.rotation.set(0, 0, -0.15);
+  h.getNormalizedBoneNode('rightLowerArm')?.rotation.set(0, 0, 0.15);
+}
+
+function applyPose(vrm, pose, hips, hipsRest) {
+  const h = vrm.humanoid;
+  for (const name of POSE_BONES) {
+    const node = h.getNormalizedBoneNode(name);
+    if (!node) continue;
+    const p = pose[name];
+    if (p) node.rotation.set(p.rot[0], p.rot[1], p.rot[2]);
+    else node.rotation.set(0, 0, 0);
+  }
+  if (hips && hipsRest && pose.hips?.pos) {
+    hips.position.set(hipsRest.x + pose.hips.pos[0], hipsRest.y + pose.hips.pos[1], hipsRest.z + pose.hips.pos[2]);
+  }
+}
+
+// ---- .vrma(VRMアニメーション)の読み込み ----
+export async function loadMotionFile(file) {
+  const buf = await file.arrayBuffer();
+  const loader = new GLTFLoader();
+  loader.register((parser) => new VRMAnimationLoaderPlugin(parser));
+  const gltf = await new Promise((resolve, reject) => loader.parse(buf, '', resolve, reject));
+  const anim = gltf.userData.vrmAnimations?.[0];
+  if (!anim) throw new Error('VRMアニメーションが入っていません');
+  return anim;
 }

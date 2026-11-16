@@ -22,7 +22,7 @@
 
   <button id="pick-first" class="btn first" hidden>モデルを選ぶ（ドラッグ＆ドロップでもOK）</button>
   <p id="notice" class="notice" hidden></p>
-  <div id="drop" class="drop" hidden>ここに .glb / .gltf / .vrm を落とす</div>
+  <div id="drop" class="drop" hidden>ここに .glb / .gltf / .vrm / .vrma を落とす</div>
 
   <div id="panel" class="panel" hidden>
     <div class="panel-inner">
@@ -47,19 +47,29 @@
         <input id="turn" type="range" min="-180" max="180" step="5" />
       </label>
       <label class="field check">
+        <input id="dance-toggle" type="checkbox" />
+        <span>踊る（VRM）</span>
+      </label>
+      <label class="field">
+        <span>テンポ</span>
+        <input id="bpm" type="range" min="70" max="180" step="1" />
+        <span id="bpm-value" class="num">120</span>
+      </label>
+      <label class="field check">
         <input id="debug-toggle" type="checkbox" />
         <span>目の追跡を表示</span>
       </label>
       <p id="model-name" class="model-name"></p>
       <div class="row">
-        <button id="pick" class="btn small">モデルを選ぶ</button>
+        <button id="unmotion" class="btn small" hidden>モーションを外す</button>
+        <button id="pick" class="btn small">モデル・モーションを選ぶ</button>
         <button id="sample" class="btn small">サンプルに戻す</button>
         <button id="close" class="btn small">閉じる</button>
       </div>
     </div>
   </div>
 
-  <input id="file" type="file" accept=".glb,.gltf,.vrm,model/gltf-binary,model/gltf+json" hidden />
+  <input id="file" type="file" accept=".glb,.gltf,.vrm,.vrma,model/gltf-binary,model/gltf+json" hidden />
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>

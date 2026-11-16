@@ -65,3 +65,4 @@ html, body {
 .row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .row.seg { justify-content: flex-start; }
 .model-name { margin: 0; font-size: 12px; opacity: 0.6; overflow-wrap: anywhere; }
+.num { width: 2.5em; text-align: right; font-variant-numeric: tabular-nums; opacity: 0.8; }
